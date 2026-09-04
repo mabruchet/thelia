@@ -17,6 +17,7 @@ namespace Thelia\Test;
 use Propel\Runtime\Connection\ConnectionInterface;
 use Thelia\Core\Security\AccessManager;
 use Thelia\Domain\Taxation\TaxEngine\TaxType\PricePercentTaxType;
+use Thelia\Model\Accessory;
 use Thelia\Model\Address;
 use Thelia\Model\Admin;
 use Thelia\Model\Attribute;
@@ -206,6 +207,20 @@ final class FixtureFactory
             ->setVisible($overrides['visible'] ?? 1)
             ->setPosition($overrides['position'] ?? $n);
 
+        // Timestampable only fills created_at when it is untouched, so setting it
+        // here survives the insert.
+        if (isset($overrides['createdAt'])) {
+            $product->setCreatedAt($overrides['createdAt']);
+        }
+
+        // A product has no product_i18n row unless a title is asked for, which is
+        // what makes an untranslated product testable.
+        if (isset($overrides['title'])) {
+            $product
+                ->setLocale($overrides['locale'] ?? 'en_US')
+                ->setTitle($overrides['title']);
+        }
+
         // Product::create() handles the full creation in a transaction:
         // persist the product, assign default category, create default PSE + price.
         $product->create(
@@ -217,7 +232,32 @@ final class FixtureFactory
             $overrides['baseQuantity'] ?? 0,
         );
 
+        // Product::create() saves the product several times, so updated_at can only
+        // be forced once the creation is over.
+        if (isset($overrides['updatedAt'])) {
+            $product->setUpdatedAt($overrides['updatedAt'])->save($this->connection);
+        }
+
         return $product;
+    }
+
+    /**
+     * Ties an accessory to a product at the given position, the way the back-office does.
+     *
+     * The position is written after the insert: Accessory::preInsert() overwrites it with the
+     * next free one, so a position asked for at creation time never survives.
+     */
+    public function accessory(Product $product, Product $accessory, int $position): Accessory
+    {
+        $link = new Accessory();
+        $link
+            ->setProductId($product->getId())
+            ->setAccessory($accessory->getId())
+            ->save($this->connection);
+
+        $link->setPosition($position)->save($this->connection);
+
+        return $link;
     }
 
     public function customer(
@@ -232,6 +272,30 @@ final class FixtureFactory
         $customer->setLastname($overrides['lastname'] ?? 'Doe');
         $customer->setEmail($overrides['email'] ?? 'customer-'.$n.'@test.com');
         $customer->setPassword($overrides['password'] ?? 'password');
+        $customer->save($this->connection);
+
+        return $customer;
+    }
+
+    /**
+     * A customer who ordered without creating an account: no password, marked as a guest.
+     *
+     * customer() always sets a password, which is exactly what a guest must not have,
+     * and what tells the two apart everywhere the guest checkout is involved.
+     */
+    public function guestCustomer(
+        CustomerTitle $title,
+        array $overrides = [],
+    ): Customer {
+        $n = $this->next();
+
+        $customer = new Customer();
+        $customer->setIsGuest(1);
+        $customer->setTitleId($title->getId());
+        $customer->setFirstname($overrides['firstname'] ?? 'Guest');
+        $customer->setLastname($overrides['lastname'] ?? 'Visitor');
+        $customer->setEmail($overrides['email'] ?? 'guest-'.$n.'@test.com');
+        $customer->setEnable(0);
         $customer->save($this->connection);
 
         return $customer;
