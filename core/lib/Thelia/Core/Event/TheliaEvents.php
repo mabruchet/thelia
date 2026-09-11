@@ -468,6 +468,12 @@ final class TheliaEvents
     public const CONSENT_UPDATE_POSITION = 'action.updateConsentPosition';
     public const CONSENT_TOGGLE_ACTIVE = 'action.toggleConsentActive';
 
+    // -- Checkout steps management ------------------------------------------
+
+    public const CHECKOUT_STEP_UPDATE_POSITION = 'action.updateCheckoutStepPosition';
+    public const CHECKOUT_STEP_TOGGLE_ACTIVE = 'action.toggleCheckoutStepActive';
+    public const CHECKOUT_STEP_SYNCHRONIZE = 'action.synchronizeCheckoutSteps';
+
     // -- Features management ---------------------------------------------
 
     public const FEATURE_CREATE = 'action.createFeature';
