@@ -62,7 +62,15 @@ class OrderReturnLine implements PropelResourceInterface
     public ?int $id = null;
 
     #[Relation(targetResource: OrderProduct::class)]
-    #[NotBlank(groups: [self::GROUP_FRONT_WRITE, self::GROUP_ADMIN_WRITE])]
+    // The parent OrderReturn is what a caller actually posts: its own write
+    // groups are what #[Valid] cascades with while checking this line, on top
+    // of this class's own groups for its standalone Patch operation.
+    #[NotBlank(groups: [
+        self::GROUP_FRONT_WRITE,
+        self::GROUP_ADMIN_WRITE,
+        OrderReturn::GROUP_FRONT_WRITE,
+        OrderReturn::GROUP_ADMIN_WRITE,
+    ])]
     #[Groups([
         self::GROUP_ADMIN_READ,
         self::GROUP_ADMIN_WRITE,

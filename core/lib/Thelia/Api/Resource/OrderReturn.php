@@ -24,6 +24,7 @@ use ApiPlatform\Metadata\Post;
 use Propel\Runtime\Map\TableMap;
 use Symfony\Component\Serializer\Annotation\Groups;
 use Symfony\Component\Validator\Constraints\NotBlank;
+use Symfony\Component\Validator\Constraints\Valid;
 use Thelia\Api\Bridge\Propel\Attribute\Column;
 use Thelia\Api\Bridge\Propel\Attribute\Relation;
 use Thelia\Api\Bridge\Propel\Filter\DateFilter;
@@ -181,6 +182,7 @@ class OrderReturn implements PropelResourceInterface
 
     #[Relation(targetResource: OrderReturnLine::class)]
     #[NotBlank(groups: [self::GROUP_FRONT_WRITE, self::GROUP_ADMIN_WRITE])]
+    #[Valid]
     #[Groups([
         self::GROUP_ADMIN_READ_SINGLE,
         self::GROUP_ADMIN_WRITE,
