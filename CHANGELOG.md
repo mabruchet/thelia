@@ -38,6 +38,7 @@ The version number follows the update script this release ships, `setup/update/s
 - `Thelia\Api\Service\API\ResourceCache` reads `thelia.api.data_access.cache.visitor_dependent_price_prefixes` and asks `PricingActivityChecker`; the former `reserved_sale_sensitive_prefixes` parameter is kept as an alias of the new one.
 - The API persist and remove processors dispatch `Thelia\Api\Bridge\Propel\Event\ResourcePersistedEvent` after a write, and the collection provider dispatches `CollectionModelsLoadedEvent` before transforming a page. Nothing listens to them but the core; a module may.
 - The front `ProductSaleElements` resource carries `displayInitialPrice`, null unless a rule or a reserved operation priced the sale element on that read.
+- `Thelia\Api\State\Processor\OrderReturnFrontCreateProcessor` and `OrderReturnAdminCreateProcessor::__construct()` take `Thelia\Api\Service\OrderReturnStatusEmailDispatcher` in place of the raw event dispatcher; that processor pair, `OrderReturnLineAdminPatchProcessor` and `Thelia\Action\OrderReturn` take `Thelia\Domain\OrderReturn\Service\OrderReturnWriteTransactionInterface` in place of the concrete `OrderReturnWriteTransaction`, keeping the same default. A module instantiating one of them itself has to follow; a module reading it from the container has nothing to do.
 
 # 3.1.0
 
