@@ -20,7 +20,7 @@ The version number follows the update script this release ships, `setup/update/s
 - Raising the quantity of a return line from the admin API is checked against the other lines of the same return on the same article, which the check used to leave out.
 - The quantity already returned on a line is read from the database, not from a line loaded earlier in the same process.
 - A customer opening a return on an order they do not own is refused by a plain read, before `OrderReturnWriteTransaction` locks anything: naming somebody else's order in the body no longer takes a `FOR UPDATE` lock on it, and no longer costs the request quota either.
-- A return opened on the front for an order the customer does not own, and one opened for an order that does not exist, now answer the exact same refusal, `This order cannot be used for a return.`: the two used to read differently, letting a caller tell them apart.
+- A return opened on the front for an order the customer does not own, and one opened for an order that existed when its IRI was resolved but is gone by the time the locked transaction reads it again, now answer the exact same refusal, `This order cannot be used for a return.` Naming an order that never existed at all still answers differently, a 400 raised while API Platform resolves the IRI, before this code runs at all: a caller can still tell that case apart, a known gap left open.
 - A return request body missing its `order` or a line missing its `orderProduct` is refused with 422 instead of a fatal error: the front and admin `Post` operations of `Thelia\Api\Resource\OrderReturn` now declare a `validationContext`, so the `NotBlank` constraints on those fields actually run.
 
 ## API
