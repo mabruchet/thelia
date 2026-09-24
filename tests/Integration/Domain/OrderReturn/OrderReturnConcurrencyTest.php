@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Thelia\Tests\Integration\Domain\OrderReturn;
 
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Group;
 use Propel\Runtime\Connection\ConnectionInterface;
 use Propel\Runtime\Connection\ConnectionWrapper;
 use Propel\Runtime\Connection\PdoConnection;
@@ -60,6 +61,7 @@ use Thelia\Test\IntegrationTestCase;
  * that exchange is left to timing: the child says when it holds its locks,
  * and commits only once it has seen the request under test blocked on them.
  */
+#[Group('concurrency')]
 final class OrderReturnConcurrencyTest extends IntegrationTestCase
 {
     // A dedicated connection only proves anything outside the transaction
@@ -642,6 +644,13 @@ final class OrderReturnConcurrencyTest extends IntegrationTestCase
     }
 
     /**
+     * A lock wait timeout PDO raises on the connection Propel wraps does not
+     * always reach the caller bare: ModelCriteria::find() and the write
+     * helpers of this test wrap it into a PropelException first. Both forms
+     * are accepted, and the search always ends on the innermost PDOException
+     * - getPrevious() the way assertWritesWithoutWaiting() also does - since
+     * that is the one carrying the driver's own message.
+     *
      * @param callable(): mixed $attempt
      */
     private function expectLockWaitTimeout(string $failure, callable $attempt): void
@@ -649,8 +658,13 @@ final class OrderReturnConcurrencyTest extends IntegrationTestCase
         try {
             $attempt();
             self::fail($failure);
-        } catch (\PDOException $timeout) {
-            self::assertStringContainsString('Lock wait timeout exceeded', $timeout->getMessage());
+        } catch (\PDOException|PropelException $exception) {
+            $cause = $exception;
+            for ($current = $exception; null !== $current; $current = $current->getPrevious()) {
+                $cause = $current;
+            }
+
+            self::assertStringContainsString('Lock wait timeout exceeded', $cause->getMessage());
         }
     }
 
