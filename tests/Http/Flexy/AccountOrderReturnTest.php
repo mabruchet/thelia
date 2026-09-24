@@ -52,10 +52,6 @@ final class AccountOrderReturnTest extends WebIntegrationTestCase
 
     private ?CustomerSessionInjector $injector = null;
 
-    private ?string $previousEnabled = null;
-
-    private ?string $previousWindow = null;
-
     protected function setUp(): void
     {
         parent::setUp();
@@ -64,8 +60,6 @@ final class AccountOrderReturnTest extends WebIntegrationTestCase
             self::markTestSkipped('The installed front-office theme has no order return pages.');
         }
 
-        $this->previousEnabled = ConfigQuery::read(ReturnEligibilityChecker::ENABLED_CONFIG_KEY);
-        $this->previousWindow = ConfigQuery::read(ReturnEligibilityChecker::WINDOW_CONFIG_KEY);
         $this->enableReturns('14');
 
         $this->injector = new CustomerSessionInjector();
@@ -75,8 +69,9 @@ final class AccountOrderReturnTest extends WebIntegrationTestCase
     protected function tearDown(): void
     {
         $this->injector?->clear();
-        ConfigQuery::write(ReturnEligibilityChecker::ENABLED_CONFIG_KEY, (string) $this->previousEnabled);
-        ConfigQuery::write(ReturnEligibilityChecker::WINDOW_CONFIG_KEY, (string) $this->previousWindow);
+        // The written settings go with the transaction rollback; the static cache of
+        // ConfigQuery does not.
+        ConfigQuery::resetCache();
 
         parent::tearDown();
     }
