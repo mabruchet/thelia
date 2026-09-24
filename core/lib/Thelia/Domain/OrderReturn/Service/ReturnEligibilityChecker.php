@@ -148,6 +148,20 @@ final class ReturnEligibilityChecker
             throw new ReturnNotAllowedException('This order cannot be used for a return.');
         }
 
+        $status = $order->getOrderStatus();
+
+        if ($status?->isCancelled()) {
+            throw new ReturnNotAllowedException('This order has been cancelled and can no longer be returned.');
+        }
+
+        if ($status?->isRefunded()) {
+            throw new ReturnNotAllowedException('This order has already been refunded and can no longer be returned.');
+        }
+
+        if ($status?->isNotPaid()) {
+            throw new ReturnNotAllowedException('This order has not been paid yet and cannot be returned.');
+        }
+
         if (!$this->isWithinReturnWindow($order)) {
             throw new ReturnNotAllowedException('The return window for this order has closed.');
         }

@@ -432,6 +432,143 @@ final class OrderReturnApiTest extends ApiTestCase
         );
     }
 
+    /**
+     * A cancelled order gets a refusal that names the reason, not the generic
+     * "window has closed" message a customer would misread as "you were too
+     * slow".
+     */
+    public function testACustomerCannotOpenAReturnOnACancelledOrder(): void
+    {
+        $customer = $this->customer();
+        $order = $this->factory->order($customer, ['statusCode' => OrderStatus::CODE_CANCELED]);
+        $orderProduct = $this->orderProductFor($order);
+
+        $token = $this->authenticateAsCustomer($customer);
+        $response = $this->jsonRequest(
+            'POST',
+            '/api/front/account/order_returns',
+            [
+                'order' => '/api/front/account/orders/'.$order->getId(),
+                'orderReturnLines' => [
+                    ['orderProduct' => '/api/front/account/order_products/'.$orderProduct->getId(), 'quantity' => 1.0],
+                ],
+            ],
+            token: $token,
+        );
+
+        self::assertSame(422, $response->getStatusCode());
+        self::assertStringContainsString(
+            'This order has been cancelled and can no longer be returned.',
+            (string) $response->getContent(),
+        );
+        self::assertSame(
+            0,
+            OrderReturnQuery::create()->filterByCustomerId((int) $customer->getId())->count($this->getPropelConnection()),
+            'A return was written on a cancelled order.',
+        );
+    }
+
+    /**
+     * Same distinction for a refunded order.
+     */
+    public function testACustomerCannotOpenAReturnOnARefundedOrder(): void
+    {
+        $customer = $this->customer();
+        $order = $this->factory->order($customer, ['statusCode' => OrderStatus::CODE_REFUNDED]);
+        $orderProduct = $this->orderProductFor($order);
+
+        $token = $this->authenticateAsCustomer($customer);
+        $response = $this->jsonRequest(
+            'POST',
+            '/api/front/account/order_returns',
+            [
+                'order' => '/api/front/account/orders/'.$order->getId(),
+                'orderReturnLines' => [
+                    ['orderProduct' => '/api/front/account/order_products/'.$orderProduct->getId(), 'quantity' => 1.0],
+                ],
+            ],
+            token: $token,
+        );
+
+        self::assertSame(422, $response->getStatusCode());
+        self::assertStringContainsString(
+            'This order has already been refunded and can no longer be returned.',
+            (string) $response->getContent(),
+        );
+        self::assertSame(
+            0,
+            OrderReturnQuery::create()->filterByCustomerId((int) $customer->getId())->count($this->getPropelConnection()),
+            'A return was written on a refunded order.',
+        );
+    }
+
+    /**
+     * Same distinction for an order still waiting for its payment.
+     */
+    public function testACustomerCannotOpenAReturnOnAnUnpaidOrder(): void
+    {
+        $customer = $this->customer();
+        $order = $this->factory->order($customer, ['statusCode' => OrderStatus::CODE_NOT_PAID]);
+        $orderProduct = $this->orderProductFor($order);
+
+        $token = $this->authenticateAsCustomer($customer);
+        $response = $this->jsonRequest(
+            'POST',
+            '/api/front/account/order_returns',
+            [
+                'order' => '/api/front/account/orders/'.$order->getId(),
+                'orderReturnLines' => [
+                    ['orderProduct' => '/api/front/account/order_products/'.$orderProduct->getId(), 'quantity' => 1.0],
+                ],
+            ],
+            token: $token,
+        );
+
+        self::assertSame(422, $response->getStatusCode());
+        self::assertStringContainsString(
+            'This order has not been paid yet and cannot be returned.',
+            (string) $response->getContent(),
+        );
+        self::assertSame(
+            0,
+            OrderReturnQuery::create()->filterByCustomerId((int) $customer->getId())->count($this->getPropelConnection()),
+            'A return was written on an unpaid order.',
+        );
+    }
+
+    /**
+     * The order named in the body is locked before it is checked: somebody
+     * else's order is refused at the first check of the request, and nothing
+     * is written on it.
+     */
+    public function testACustomerCannotOpenAReturnOnSomebodyElsesOrder(): void
+    {
+        $owner = $this->customer();
+        $stranger = $this->customer();
+        $order = $this->factory->order($owner, ['statusCode' => OrderStatus::CODE_PAID]);
+        $orderProduct = $this->orderProductFor($order);
+
+        $response = $this->jsonRequest(
+            'POST',
+            '/api/front/account/order_returns',
+            [
+                'order' => '/api/front/account/orders/'.$order->getId(),
+                'orderReturnLines' => [
+                    ['orderProduct' => '/api/front/account/order_products/'.$orderProduct->getId(), 'quantity' => 1.0],
+                ],
+            ],
+            token: $this->authenticateAsCustomer($stranger),
+        );
+
+        self::assertSame(422, $response->getStatusCode());
+        self::assertStringContainsString('This order cannot be used for a return.', (string) $response->getContent());
+        self::assertSame(
+            0,
+            OrderReturnQuery::create()->filterByOrderId((int) $order->getId())->count($this->getPropelConnection()),
+            'A return was written on somebody else\'s order.',
+        );
+    }
+
     public function testACustomerCannotReturnMoreThanTheOrderedQuantity(): void
     {
         ConfigQuery::write(ReturnEligibilityChecker::ENABLED_CONFIG_KEY, '1');

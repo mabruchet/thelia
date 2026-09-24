@@ -96,6 +96,46 @@ final class ReturnEligibilityCheckerTest extends IntegrationTestCase
         self::assertFalse($this->checker->isWithinReturnWindow($order));
     }
 
+    /**
+     * A cancelled order gets its own refusal, distinct from "the window has
+     * closed": the customer did not miss a deadline, the order does not exist
+     * as far as returns are concerned.
+     */
+    public function testACancelledOrderIsRefusedWithAnExplicitMessage(): void
+    {
+        [$order, $customer] = $this->paidOrderWithProduct(statusCode: OrderStatus::CODE_CANCELED);
+
+        $this->expectException(ReturnNotAllowedException::class);
+        $this->expectExceptionMessage('This order has been cancelled and can no longer be returned.');
+        $this->checker->assertOrderReturnable($order, $customer);
+    }
+
+    /**
+     * Same distinction for a refunded order: the customer already got their
+     * money back, which is what the message has to say instead of "closed".
+     */
+    public function testARefundedOrderIsRefusedWithAnExplicitMessage(): void
+    {
+        [$order, $customer] = $this->paidOrderWithProduct(statusCode: OrderStatus::CODE_REFUNDED);
+
+        $this->expectException(ReturnNotAllowedException::class);
+        $this->expectExceptionMessage('This order has already been refunded and can no longer be returned.');
+        $this->checker->assertOrderReturnable($order, $customer);
+    }
+
+    /**
+     * An order still waiting for its payment is not late, it is not paid:
+     * "the window has closed" would send the customer the wrong way.
+     */
+    public function testAnUnpaidOrderIsRefusedWithAnExplicitMessage(): void
+    {
+        [$order, $customer] = $this->paidOrderWithProduct(statusCode: OrderStatus::CODE_NOT_PAID);
+
+        $this->expectException(ReturnNotAllowedException::class);
+        $this->expectExceptionMessage('This order has not been paid yet and cannot be returned.');
+        $this->checker->assertOrderReturnable($order, $customer);
+    }
+
     public function testAForeignOrderCannotBeOpenedByAnotherCustomer(): void
     {
         [$order] = $this->paidOrderWithProduct();
