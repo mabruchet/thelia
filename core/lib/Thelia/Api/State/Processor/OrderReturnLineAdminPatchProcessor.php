@@ -16,13 +16,10 @@ namespace Thelia\Api\State\Processor;
 
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProcessorInterface;
-use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 use Thelia\Api\Bridge\Propel\State\PropelPersistProcessor;
 use Thelia\Api\Resource\OrderReturnLine as OrderReturnLineResource;
-use Thelia\Domain\OrderReturn\Exception\ReturnNotAllowedException;
-use Thelia\Domain\OrderReturn\Exception\ReturnRequestConflictException;
 use Thelia\Domain\OrderReturn\Service\OrderReturnWriteTransaction;
 use Thelia\Domain\OrderReturn\Service\ReturnEligibilityChecker;
 use Thelia\Model\Customer;
@@ -90,24 +87,22 @@ final readonly class OrderReturnLineAdminPatchProcessor implements ProcessorInte
             throw new UnprocessableEntityHttpException('The return line is not attached to an order of a customer.');
         }
 
-        try {
-            return $this->transaction->run((int) $order->getId(), [(int) $orderProduct->getId()], function () use ($data, $operation, $uriVariables, $context, $order, $customer, $orderProduct, $quantity, $stored): mixed {
-                // Only the line being patched leaves the count: the other lines
-                // of the same return may hold units of the same order product.
-                $this->eligibility->assertReturnable(
-                    $order,
-                    $customer,
-                    $orderProduct,
-                    $quantity,
-                    excludeLineId: (int) $stored->getId(),
-                );
+        // A ReturnNotAllowedException (or its ReturnRequestConflictException
+        // subclass) raised inside is left to propagate: the core
+        // api_platform.exception_to_status configuration maps it to 422 or
+        // 409, so this processor does not catch it itself.
+        return $this->transaction->run((int) $order->getId(), [(int) $orderProduct->getId()], function () use ($data, $operation, $uriVariables, $context, $order, $customer, $orderProduct, $quantity, $stored): mixed {
+            // Only the line being patched leaves the count: the other lines
+            // of the same return may hold units of the same order product.
+            $this->eligibility->assertReturnable(
+                $order,
+                $customer,
+                $orderProduct,
+                $quantity,
+                excludeLineId: (int) $stored->getId(),
+            );
 
-                return $this->persistProcessor->process($data, $operation, $uriVariables, $context);
-            });
-        } catch (ReturnRequestConflictException $exception) {
-            throw new ConflictHttpException($exception->getMessage(), $exception);
-        } catch (ReturnNotAllowedException $exception) {
-            throw new UnprocessableEntityHttpException($exception->getMessage(), $exception);
-        }
+            return $this->persistProcessor->process($data, $operation, $uriVariables, $context);
+        });
     }
 }

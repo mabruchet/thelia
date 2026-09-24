@@ -16,32 +16,35 @@ namespace Thelia\Api\State\Processor;
 
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProcessorInterface;
-use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
-use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 use Thelia\Api\Bridge\Propel\State\PropelPersistProcessor;
 use Thelia\Api\Resource\OrderReturn as OrderReturnResource;
 use Thelia\Api\Service\OrderReturnHydrator;
-use Thelia\Core\Event\OrderReturn\OrderReturnEvent;
-use Thelia\Core\Event\TheliaEvents;
-use Thelia\Domain\OrderReturn\Exception\ReturnNotAllowedException;
-use Thelia\Domain\OrderReturn\Exception\ReturnRequestConflictException;
+use Thelia\Api\Service\OrderReturnStatusEmailDispatcher;
 use Thelia\Domain\OrderReturn\Service\OrderReturnWriteTransaction;
 use Thelia\Model\Customer;
 use Thelia\Model\OrderQuery;
-use Thelia\Model\OrderReturn as OrderReturnModel;
 
 /**
  * A return opened by the merchant from the back-office, without a customer
  * request (a return received by phone). The customer is taken from the order,
  * the return is flagged as admin-created, and the lines are still checked.
+ *
+ * The order named in the body comes from the merchant, never from an
+ * unauthenticated caller naming somebody else's order: unlike the front path,
+ * there is no ownership to check here before locking it.
+ *
+ * Every refusal this processor lets through - a ReturnNotAllowedException and
+ * its ReturnRequestConflictException subclass - is mapped to its HTTP status
+ * by the api_platform.exception_to_status configuration, not by a catch here:
+ * see the core api_platform package configuration.
  */
 final readonly class OrderReturnAdminCreateProcessor implements ProcessorInterface
 {
     public function __construct(
         private PropelPersistProcessor $persistProcessor,
         private OrderReturnHydrator $hydrator,
-        private EventDispatcherInterface $eventDispatcher,
+        private OrderReturnStatusEmailDispatcher $statusEmailDispatcher,
         private OrderReturnWriteTransaction $transaction = new OrderReturnWriteTransaction(),
     ) {
     }
@@ -49,7 +52,7 @@ final readonly class OrderReturnAdminCreateProcessor implements ProcessorInterfa
     public function process(mixed $data, Operation $operation, array $uriVariables = [], array $context = []): mixed
     {
         if (!$data instanceof OrderReturnResource) {
-            return $this->dispatchStatusEmail(
+            return $this->statusEmailDispatcher->dispatch(
                 $this->persistProcessor->process($data, $operation, $uriVariables, $context),
             );
         }
@@ -65,34 +68,14 @@ final readonly class OrderReturnAdminCreateProcessor implements ProcessorInterfa
         // takes the same row locks, in the same transaction as the insert they
         // protect. The persist processor opens a transaction of its own, which
         // Propel nests inside this one.
-        try {
-            [$orderId, $orderProductIds] = OrderReturnHydrator::rowsToLock($data);
+        [$orderId, $orderProductIds] = OrderReturnHydrator::rowsToLock($data);
 
-            $result = $this->transaction->run($orderId, $orderProductIds, function () use ($data, $customer, $operation, $uriVariables, $context): mixed {
-                $this->hydrator->hydrate($data, $customer, true);
+        $result = $this->transaction->run($orderId, $orderProductIds, function () use ($data, $customer, $operation, $uriVariables, $context): mixed {
+            $this->hydrator->hydrate($data, $customer, true);
 
-                return $this->persistProcessor->process($data, $operation, $uriVariables, $context);
-            });
-        } catch (ReturnRequestConflictException $exception) {
-            throw new ConflictHttpException($exception->getMessage(), $exception);
-        } catch (ReturnNotAllowedException $exception) {
-            throw new UnprocessableEntityHttpException($exception->getMessage(), $exception);
-        }
+            return $this->persistProcessor->process($data, $operation, $uriVariables, $context);
+        });
 
-        return $this->dispatchStatusEmail($result);
-    }
-
-    /**
-     * Announces the return to the customer once it is committed, never from
-     * inside the transaction: a mail is not something a rollback takes back.
-     */
-    private function dispatchStatusEmail(mixed $result): mixed
-    {
-        $model = $result instanceof OrderReturnResource ? $result->getPropelModel() : null;
-        if ($model instanceof OrderReturnModel) {
-            $this->eventDispatcher->dispatch(new OrderReturnEvent($model), TheliaEvents::ORDER_RETURN_SEND_STATUS_EMAIL);
-        }
-
-        return $result;
+        return $this->statusEmailDispatcher->dispatch($result);
     }
 }

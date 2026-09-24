@@ -14,6 +14,12 @@ declare(strict_types=1);
 
 namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
+use ApiPlatform\Metadata\Exception\InvalidArgumentException as ApiInvalidArgumentException;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Serializer\Exception\ExceptionInterface as SerializerExceptionInterface;
+use Thelia\Domain\OrderReturn\Exception\ReturnNotAllowedException;
+use Thelia\Domain\OrderReturn\Exception\ReturnRequestConflictException;
+
 return static function (ContainerConfigurator $container): void {
     $container->extension('api_platform', [
         'title' => 'Thelia API',
@@ -21,6 +27,26 @@ return static function (ContainerConfigurator $container): void {
         'show_webby' => false,
         'serializer' => [
             'hydra_prefix' => true,
+        ],
+        'exception_to_status' => [
+            // Configuring this key at all replaces api_platform's own default
+            // value instead of merging with it (Symfony config trees only fall
+            // back to defaultValue() when no source sets the key), so the two
+            // of its three built-in entries this project can ever throw are
+            // carried over here - a bad IRI in a request body, for instance,
+            // otherwise answers a 500 instead of the 400
+            // ApiInvalidArgumentException used to give it. The third
+            // (Doctrine\ORM\OptimisticLockException) is left out: this project
+            // has no Doctrine ORM, so nothing ever throws it.
+            SerializerExceptionInterface::class => Response::HTTP_BAD_REQUEST,
+            ApiInvalidArgumentException::class => Response::HTTP_BAD_REQUEST,
+            // The subclass first: exception_to_status stops at the first class
+            // the thrown exception is an instance of, and every
+            // ReturnRequestConflictException also is a ReturnNotAllowedException.
+            // Listed the other way round, a conflict would answer 422 instead
+            // of the 409 a caller can retry.
+            ReturnRequestConflictException::class => Response::HTTP_CONFLICT,
+            ReturnNotAllowedException::class => Response::HTTP_UNPROCESSABLE_ENTITY,
         ],
         'defaults' => [
             'pagination_client_items_per_page' => true,
