@@ -19,6 +19,7 @@ The version number follows the update script this release ships, `setup/update/s
 - A return on an order that is not paid yet is refused as such, instead of being told its return window has closed.
 - Raising the quantity of a return line from the admin API is checked against the other lines of the same return on the same article, which the check used to leave out.
 - The quantity already returned on a line is read from the database, not from a line loaded earlier in the same process.
+- A customer opening a return on an order they do not own is refused by a plain read, before `OrderReturnWriteTransaction` locks anything: naming somebody else's order in the body no longer takes a `FOR UPDATE` lock on it, and no longer costs the request quota either.
 
 ## API
 

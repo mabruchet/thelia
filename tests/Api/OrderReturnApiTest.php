@@ -14,7 +14,10 @@ declare(strict_types=1);
 
 namespace Thelia\Tests\Api;
 
+use Propel\Runtime\Connection\PdoConnection;
+use Propel\Runtime\Propel;
 use Symfony\Component\HttpFoundation\Response;
+use Thelia\Config\DatabaseConfiguration;
 use Thelia\Core\Security\AccessManager;
 use Thelia\Core\Security\Resource\AdminResources;
 use Thelia\Domain\OrderReturn\Service\ReturnEligibilityChecker;
@@ -537,9 +540,26 @@ final class OrderReturnApiTest extends ApiTestCase
     }
 
     /**
-     * The order named in the body is locked before it is checked: somebody
-     * else's order is refused at the first check of the request, and nothing
-     * is written on it.
+     * The order named in the body is checked for ownership by a plain read,
+     * before OrderReturnWriteTransaction ever opens its transaction and locks
+     * the row: a customer naming somebody else's order must not be able to
+     * hold a FOR UPDATE lock on it, even briefly and even though the request
+     * is refused - repeating it would otherwise cost nothing towards the
+     * request quota (consumed only once the ownership check has passed) while
+     * holding a row its owner does not expect to wait on.
+     *
+     * Proven by locking the order from a second, genuinely independent
+     * database session before the request is sent, with the connection the
+     * request runs on given a short lock wait timeout: a request that still
+     * locked the order to check it would wait on that lock and fail loudly at
+     * the timeout instead of answering 422 straight away.
+     *
+     * That second session can only see what this test has actually committed
+     * - the transaction ApiTestCase wraps every other test in, and rolls back
+     * in tearDown(), would otherwise hide the fixtures from it and make its
+     * own lock attempt wait on rows a different, uncommitted transaction still
+     * holds, whatever the fix. This test commits its fixtures for real and
+     * cleans them up itself instead of relying on that rollback.
      */
     public function testACustomerCannotOpenAReturnOnSomebodyElsesOrder(): void
     {
@@ -548,25 +568,69 @@ final class OrderReturnApiTest extends ApiTestCase
         $order = $this->factory->order($owner, ['statusCode' => OrderStatus::CODE_PAID]);
         $orderProduct = $this->orderProductFor($order);
 
-        $response = $this->jsonRequest(
-            'POST',
-            '/api/front/account/order_returns',
-            [
-                'order' => '/api/front/account/orders/'.$order->getId(),
-                'orderReturnLines' => [
-                    ['orderProduct' => '/api/front/account/order_products/'.$orderProduct->getId(), 'quantity' => 1.0],
-                ],
-            ],
-            token: $this->authenticateAsCustomer($stranger),
-        );
+        $connection = $this->getPropelConnection();
+        $connection->commit();
 
-        self::assertSame(422, $response->getStatusCode());
-        self::assertStringContainsString('This order cannot be used for a return.', (string) $response->getContent());
-        self::assertSame(
-            0,
-            OrderReturnQuery::create()->filterByOrderId((int) $order->getId())->count($this->getPropelConnection()),
-            'A return was written on somebody else\'s order.',
-        );
+        $orderId = (int) $order->getId();
+        $orderProductId = (int) $orderProduct->getId();
+        $cartId = (int) $order->getCartId();
+        $orderAddressIds = [(int) $order->getInvoiceOrderAddressId(), (int) $order->getDeliveryOrderAddressId()];
+        $customerIds = [(int) $owner->getId(), (int) $stranger->getId()];
+
+        try {
+            $requestConnection = Propel::getWriteConnection(DatabaseConfiguration::THELIA_CONNECTION_NAME);
+            $previousLockWaitTimeout = (string) $requestConnection->query('SELECT @@SESSION.innodb_lock_wait_timeout')->fetchColumn();
+            $requestConnection->exec('SET SESSION innodb_lock_wait_timeout = 1');
+
+            $otherSession = new PdoConnection($this->dsn(), $_SERVER['DATABASE_USER'], $_SERVER['DATABASE_PASSWORD']);
+            $otherSession->beginTransaction();
+            $lock = $otherSession->prepare('SELECT `id` FROM `order` WHERE `id` = :id FOR UPDATE');
+            $lock->execute([':id' => $orderId]);
+            $lock->closeCursor();
+
+            try {
+                $response = $this->jsonRequest(
+                    'POST',
+                    '/api/front/account/order_returns',
+                    [
+                        'order' => '/api/front/account/orders/'.$orderId,
+                        'orderReturnLines' => [
+                            ['orderProduct' => '/api/front/account/order_products/'.$orderProductId, 'quantity' => 1.0],
+                        ],
+                    ],
+                    token: $this->authenticateAsCustomer($stranger),
+                );
+            } finally {
+                $otherSession->rollBack();
+                $requestConnection->exec('SET SESSION innodb_lock_wait_timeout = '.(int) $previousLockWaitTimeout);
+            }
+
+            self::assertSame(
+                422,
+                $response->getStatusCode(),
+                'The order was locked to check it, and the request waited on the lock a competing session held on it: '.(string) $response->getContent(),
+            );
+            self::assertStringContainsString('This order cannot be used for a return.', (string) $response->getContent());
+            self::assertSame(
+                0,
+                OrderReturnQuery::create()->filterByOrderId($orderId)->count($connection),
+                'A return was written on somebody else\'s order.',
+            );
+        } finally {
+            // Manual cleanup, in FK order: nothing here rolls back on its own
+            // since the fixtures were committed for real above.
+            $connection->exec('DELETE FROM `order_return_line` WHERE `order_product_id` = '.$orderProductId);
+            $connection->exec('DELETE FROM `order_return` WHERE `order_id` = '.$orderId);
+            $connection->exec('DELETE FROM `order_product` WHERE `id` = '.$orderProductId);
+            $connection->exec('DELETE FROM `order` WHERE `id` = '.$orderId);
+            $connection->exec('DELETE FROM `cart` WHERE `id` = '.$cartId);
+            foreach ($orderAddressIds as $addressId) {
+                $connection->exec('DELETE FROM `order_address` WHERE `id` = '.$addressId);
+            }
+            foreach ($customerIds as $customerId) {
+                $connection->exec('DELETE FROM `customer` WHERE `id` = '.$customerId);
+            }
+        }
     }
 
     public function testACustomerCannotReturnMoreThanTheOrderedQuantity(): void
@@ -1054,5 +1118,21 @@ final class OrderReturnApiTest extends ApiTestCase
         $orderProduct->save($this->getPropelConnection());
 
         return $orderProduct;
+    }
+
+    /**
+     * The DSN of a second, genuinely independent database session: the one
+     * IntegrationTestCase and this test's own $this->client share is wrapped
+     * in the transaction the test rolls back, so proving anything about a row
+     * lock across two sessions needs a connection of its own.
+     */
+    private function dsn(): string
+    {
+        return \sprintf(
+            'mysql:host=%s;port=%s;dbname=%s',
+            $_SERVER['DATABASE_HOST'],
+            $_SERVER['DATABASE_PORT'] ?? '3306',
+            $_SERVER['DATABASE_NAME'],
+        );
     }
 }

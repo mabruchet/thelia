@@ -30,8 +30,10 @@ use Thelia\Core\Event\TheliaEvents;
 use Thelia\Domain\OrderReturn\Exception\ReturnNotAllowedException;
 use Thelia\Domain\OrderReturn\Exception\ReturnRequestConflictException;
 use Thelia\Domain\OrderReturn\Service\OrderReturnWriteTransaction;
+use Thelia\Domain\OrderReturn\Service\ReturnEligibilityChecker;
 use Thelia\Domain\OrderReturn\Service\ReturnRequestLimiter;
 use Thelia\Model\Customer;
+use Thelia\Model\OrderQuery;
 use Thelia\Model\OrderReturn as OrderReturnModel;
 
 /**
@@ -65,14 +67,24 @@ final readonly class OrderReturnFrontCreateProcessor implements ProcessorInterfa
             throw new AccessDeniedHttpException('A customer must be authenticated to open a return.');
         }
 
+        [$orderId, $orderProductIds] = OrderReturnHydrator::rowsToLock($data);
+
+        // A plain read, before any row is locked: naming somebody else's order
+        // in the body must not let a caller hold a FOR UPDATE lock on it, even
+        // briefly, and this refusal must cost nothing towards the request
+        // quota either - both true only if it happens before run() opens the
+        // transaction. It answers a missing order and a foreign one with the
+        // same message, see ReturnEligibilityChecker::ORDER_NOT_USABLE_MESSAGE.
+        if (!OrderQuery::create()->filterById($orderId)->filterByCustomerId($customer->getId())->exists()) {
+            throw new UnprocessableEntityHttpException(ReturnEligibilityChecker::ORDER_NOT_USABLE_MESSAGE);
+        }
+
         // Checking how much of a line is still returnable and writing the
         // return that consumes it belong to the same transaction, or two
         // requests arriving together are both allowed the same last unit. The
         // persist processor opens a transaction of its own, which Propel nests
         // inside this one.
         try {
-            [$orderId, $orderProductIds] = OrderReturnHydrator::rowsToLock($data);
-
             $result = $this->transaction->run($orderId, $orderProductIds, function () use ($data, $customer, $operation, $uriVariables, $context): mixed {
                 $this->hydrator->hydrate($data, $customer, false);
 

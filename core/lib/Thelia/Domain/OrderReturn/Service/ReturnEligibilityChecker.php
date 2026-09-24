@@ -58,6 +58,15 @@ final class ReturnEligibilityChecker
     public const QUANTITY_PRECISION = 6;
     public const QUANTITY_TOLERANCE = 1e-6;
 
+    /**
+     * Answers both a foreign order and one that does not exist at all: on the
+     * front, telling the two apart lets a caller enumerate the order ids that
+     * exist by trying each one and reading which refusal comes back. The
+     * admin path never shows this message - a merchant names a real order and
+     * a missing one is a data error, not something to hide.
+     */
+    public const ORDER_NOT_USABLE_MESSAGE = 'This order cannot be used for a return.';
+
     public function __construct(
         private readonly OrderReturnWriteTransaction $transaction = new OrderReturnWriteTransaction(),
     ) {
@@ -150,7 +159,7 @@ final class ReturnEligibilityChecker
         }
 
         if ((int) $order->getCustomerId() !== (int) $customer->getId()) {
-            throw new ReturnNotAllowedException('This order cannot be used for a return.');
+            throw new ReturnNotAllowedException(self::ORDER_NOT_USABLE_MESSAGE);
         }
 
         $status = $order->getOrderStatus();
@@ -305,7 +314,7 @@ final class ReturnEligibilityChecker
         ?int $excludeLineId = null,
     ): void {
         if ((int) $order->getCustomerId() !== (int) $customer->getId()) {
-            throw new ReturnNotAllowedException('This order cannot be used for a return.');
+            throw new ReturnNotAllowedException(self::ORDER_NOT_USABLE_MESSAGE);
         }
 
         if ((int) $orderProduct->getOrderId() !== (int) $order->getId()) {
