@@ -45,8 +45,20 @@ use Thelia\Model\Map\OrderTableMap;
  * index gaps and may deadlock, or on MariaDB 11.6 and later run into a row
  * changed since the picture; both come back as ReturnRequestConflictException,
  * a refusal the caller can ask to retry, never a unit granted twice.
+ *
+ * A constructor default of `= new self()` - every consumer typed on
+ * {@see OrderReturnWriteTransactionInterface} carries one - builds an instance
+ * of its own rather than reusing the one the container wires as a singleton.
+ * That instance shares no state with it: readsSeeCommits() answers false on it
+ * whatever the caller's own transaction has already read, so
+ * ReturnEligibilityChecker always falls back to a locking read. It is never
+ * wrong - a locking read is the fallback this class exists to provide - but it
+ * gives up the plain read the caller's transaction would otherwise be entitled
+ * to, and the row lock and the wait that comes with it. A caller that wants
+ * the state the container's instance holds takes it through autowiring,
+ * without supplying its own default.
  */
-final class OrderReturnWriteTransaction
+final class OrderReturnWriteTransaction implements OrderReturnWriteTransactionInterface
 {
     private const ER_CHECKREAD = 1020;
     private const ER_LOCK_DEADLOCK = 1213;
@@ -66,6 +78,7 @@ final class OrderReturnWriteTransaction
      *
      * @throws ReturnRequestConflictException when the database gave up on the transaction to break a lock conflict
      */
+    #[\Override]
     public function run(int $orderId, array $orderProductIds, callable $work): mixed
     {
         $connection = Propel::getWriteConnection(DatabaseConfiguration::THELIA_CONNECTION_NAME);

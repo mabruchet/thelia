@@ -21,6 +21,7 @@ use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 use Thelia\Api\Bridge\Propel\State\PropelPersistProcessor;
 use Thelia\Api\Resource\OrderReturnLine as OrderReturnLineResource;
 use Thelia\Domain\OrderReturn\Service\OrderReturnWriteTransaction;
+use Thelia\Domain\OrderReturn\Service\OrderReturnWriteTransactionInterface;
 use Thelia\Domain\OrderReturn\Service\ReturnEligibilityChecker;
 use Thelia\Model\Customer;
 use Thelia\Model\Order;
@@ -45,7 +46,7 @@ final readonly class OrderReturnLineAdminPatchProcessor implements ProcessorInte
     public function __construct(
         private PropelPersistProcessor $persistProcessor,
         private ReturnEligibilityChecker $eligibility,
-        private OrderReturnWriteTransaction $transaction = new OrderReturnWriteTransaction(),
+        private OrderReturnWriteTransactionInterface $transaction = new OrderReturnWriteTransaction(),
     ) {
     }
 

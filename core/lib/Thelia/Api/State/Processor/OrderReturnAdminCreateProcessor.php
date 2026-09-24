@@ -22,6 +22,7 @@ use Thelia\Api\Resource\OrderReturn as OrderReturnResource;
 use Thelia\Api\Service\OrderReturnHydrator;
 use Thelia\Api\Service\OrderReturnStatusEmailDispatcher;
 use Thelia\Domain\OrderReturn\Service\OrderReturnWriteTransaction;
+use Thelia\Domain\OrderReturn\Service\OrderReturnWriteTransactionInterface;
 use Thelia\Model\Customer;
 use Thelia\Model\OrderQuery;
 
@@ -45,7 +46,7 @@ final readonly class OrderReturnAdminCreateProcessor implements ProcessorInterfa
         private PropelPersistProcessor $persistProcessor,
         private OrderReturnHydrator $hydrator,
         private OrderReturnStatusEmailDispatcher $statusEmailDispatcher,
-        private OrderReturnWriteTransaction $transaction = new OrderReturnWriteTransaction(),
+        private OrderReturnWriteTransactionInterface $transaction = new OrderReturnWriteTransaction(),
     ) {
     }
 

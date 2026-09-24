@@ -22,6 +22,8 @@ use Thelia\Core\HttpFoundation\Request;
 use Thelia\Core\HttpFoundation\Session\SessionFactory;
 use Thelia\Core\HttpFoundation\Session\SessionStorageFactory;
 use Thelia\Domain\OrderReturn\Service\OrderReturnRefGeneratorInterface;
+use Thelia\Domain\OrderReturn\Service\OrderReturnWriteTransaction;
+use Thelia\Domain\OrderReturn\Service\OrderReturnWriteTransactionInterface;
 use Thelia\Domain\OrderReturn\Service\SequenceOrderReturnRefGenerator;
 use Thelia\Log\Tlog;
 use Thelia\Model\ConfigQuery;
@@ -174,4 +176,6 @@ return static function (ContainerConfigurator $configurator, ContainerBuilder $c
     // OrderReturn model, which nothing can inject into.
     $serviceConfigurator->alias(OrderReturnRefGeneratorInterface::class, SequenceOrderReturnRefGenerator::class)
         ->public();
+
+    $serviceConfigurator->alias(OrderReturnWriteTransactionInterface::class, OrderReturnWriteTransaction::class);
 };

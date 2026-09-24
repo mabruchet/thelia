@@ -24,6 +24,7 @@ use Thelia\Domain\OrderReturn\Exception\ReturnNotAllowedException;
 use Thelia\Domain\OrderReturn\OrderReturnStateMachine;
 use Thelia\Domain\OrderReturn\Service\OrderReturnComposer;
 use Thelia\Domain\OrderReturn\Service\OrderReturnWriteTransaction;
+use Thelia\Domain\OrderReturn\Service\OrderReturnWriteTransactionInterface;
 use Thelia\Domain\OrderReturn\Service\RefundAmountCalculator;
 use Thelia\Domain\OrderReturn\Service\ReturnEligibilityChecker;
 use Thelia\Domain\OrderReturn\Service\StockIncrementer;
@@ -69,7 +70,7 @@ class OrderReturn extends BaseAction implements EventSubscriberInterface
         protected RefundAmountCalculator $refundCalculator,
         protected ReturnEligibilityChecker $eligibility,
         protected OrderReturnComposer $composer,
-        protected OrderReturnWriteTransaction $transaction = new OrderReturnWriteTransaction(),
+        protected OrderReturnWriteTransactionInterface $transaction = new OrderReturnWriteTransaction(),
     ) {
     }
 
