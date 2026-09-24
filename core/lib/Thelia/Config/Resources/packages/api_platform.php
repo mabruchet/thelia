@@ -47,6 +47,12 @@ return static function (ContainerConfigurator $container): void {
             // of the 409 a caller can retry.
             ReturnRequestConflictException::class => Response::HTTP_CONFLICT,
             ReturnNotAllowedException::class => Response::HTTP_UNPROCESSABLE_ENTITY,
+            // A module that prepends its own exception_to_status with a wide
+            // class caught here too (\RuntimeException, say) would be merged
+            // ahead of this file and win: the first class the thrown
+            // exception is an instance of settles the status, so such an
+            // entry would silently take the 409 and the 422 above away from
+            // their callers.
         ],
         'defaults' => [
             'pagination_client_items_per_page' => true,

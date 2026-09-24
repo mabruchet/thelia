@@ -60,6 +60,12 @@ use Thelia\Test\IntegrationTestCase;
  * a lock, which is the sequence the locks-first order exists for. Nothing in
  * that exchange is left to timing: the child says when it holds its locks,
  * and commits only once it has seen the request under test blocked on them.
+ *
+ * Tagged `#[Group('concurrency')]` so a run that cannot afford it can skip
+ * this class with `--exclude-group concurrency`: it spawns a child process, it
+ * opens a genuinely independent second database session next to the one
+ * under test, and it waits on real lock timeouts, all of which cost time and
+ * assume a runner where that is possible.
  */
 #[Group('concurrency')]
 final class OrderReturnConcurrencyTest extends IntegrationTestCase
