@@ -137,7 +137,9 @@ class OrderReturn implements PropelResourceInterface
     #[Groups([self::GROUP_ADMIN_READ, self::GROUP_FRONT_READ])]
     public ?string $orderRef = null;
 
-    #[Relation(targetResource: Order::class)]
+    // preload: every member of a list reads its order (the reference is shown
+    // next to each return), one query per return unless read for the page.
+    #[Relation(targetResource: Order::class, preload: true)]
     #[NotBlank(groups: [self::GROUP_FRONT_WRITE, self::GROUP_ADMIN_WRITE])]
     #[Groups([
         self::GROUP_ADMIN_READ,
