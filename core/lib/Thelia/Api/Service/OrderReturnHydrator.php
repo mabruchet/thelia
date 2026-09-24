@@ -44,6 +44,24 @@ final readonly class OrderReturnHydrator
     }
 
     /**
+     * The order and the order product lines a return resource is about, read
+     * from the request alone: OrderReturnWriteTransaction locks them before the
+     * transaction reads anything, so they cannot come from the database.
+     *
+     * @return array{int, list<int>}
+     */
+    public static function rowsToLock(OrderReturnResource $data): array
+    {
+        $orderProductIds = [];
+
+        foreach ($data->getOrderReturnLines() as $line) {
+            $orderProductIds[] = (int) $line->getOrderProduct()->getId();
+        }
+
+        return [(int) $data->getOrder()->getId(), $orderProductIds];
+    }
+
+    /**
      * Meant to be called inside the transaction that writes the return: it
      * locks every order product line it checks, and a lock outside a
      * transaction is released as soon as it is taken.

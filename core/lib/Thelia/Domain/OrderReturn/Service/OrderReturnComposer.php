@@ -70,6 +70,11 @@ final readonly class OrderReturnComposer
      */
     public function priceRequestedLines(Order $order, Customer $customer, array $lines): array
     {
+        // Every line is locked before any is checked, in the one order every
+        // path takes them in: two returns asking for [A, B] and [B, A] would
+        // otherwise each hold their first line and wait for the other's.
+        $this->eligibility->lockLines($order, array_column($lines, 'order_product'));
+
         $claimedByOrderProduct = [];
         $refunds = [];
 
@@ -78,7 +83,6 @@ final readonly class OrderReturnComposer
             $orderProductId = (int) $orderProduct->getId();
             $claimed = ($claimedByOrderProduct[$orderProductId] ?? 0.0) + $line['quantity'];
 
-            $this->eligibility->lockLine($orderProduct);
             $this->eligibility->assertReturnable($order, $customer, $orderProduct, $claimed);
 
             $claimedByOrderProduct[$orderProductId] = $claimed;

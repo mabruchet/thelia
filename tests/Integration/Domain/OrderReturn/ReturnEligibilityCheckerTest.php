@@ -14,10 +14,12 @@ declare(strict_types=1);
 
 namespace Thelia\Tests\Integration\Domain\OrderReturn;
 
+use Propel\Runtime\Propel;
 use Thelia\Domain\OrderReturn\Exception\ReturnNotAllowedException;
 use Thelia\Domain\OrderReturn\Service\ReturnEligibilityChecker;
 use Thelia\Model\ConfigQuery;
 use Thelia\Model\Customer;
+use Thelia\Model\Map\OrderReturnLineTableMap;
 use Thelia\Model\Order;
 use Thelia\Model\OrderProduct as OrderProductModel;
 use Thelia\Model\OrderProductQuery;
@@ -179,6 +181,57 @@ final class ReturnEligibilityCheckerTest extends IntegrationTestCase
         // One unit left: asking for two is refused.
         $this->expectException(ReturnNotAllowedException::class);
         $this->checker->assertReturnable($order, $customer, $line, 2.0);
+    }
+
+    /**
+     * A line loaded once stays in the Propel instance pool as it was loaded: a
+     * quantity changed since then, by the admin patch of that line or by any
+     * other write the pool does not see, must still be counted at its current
+     * value.
+     */
+    public function testTheCumulativeQuantityIsReadFromTheDatabaseNotFromTheInstancePool(): void
+    {
+        [$order, $customer] = $this->paidOrderWithProduct();
+        $line = $this->orderProduct($order, quantity: 3.0);
+        $return = $this->openReturn($order, $customer, $line, 1.0, OrderReturnStatus::CODE_REQUESTED);
+
+        // IntegrationTestCase turns the pool off; production runs with it on.
+        Propel::enableInstancePooling();
+
+        try {
+            self::assertSame(2.0, $this->checker->remainingReturnableQuantity($line));
+
+            $this->getPropelConnection()->exec(
+                'UPDATE `order_return_line` SET `quantity` = 2 WHERE `order_return_id` = '.(int) $return->getId(),
+            );
+
+            self::assertSame(1.0, $this->checker->remainingReturnableQuantity($line));
+        } finally {
+            OrderReturnLineTableMap::clearInstancePool();
+            Propel::disableInstancePooling();
+        }
+    }
+
+    /**
+     * A custom status that declares no equivalence says nothing of the
+     * payment: telling the customer the order is not paid would be a guess.
+     */
+    public function testACustomStatusWithoutEquivalenceIsNotCalledUnpaid(): void
+    {
+        [$order, $customer] = $this->paidOrderWithProduct();
+
+        $customStatus = (new OrderStatus())
+            ->setCode('awaiting_pickup_'.uniqid())
+            ->setProtectedStatus(0);
+        $customStatus->save($this->getPropelConnection());
+        $order->setOrderStatus($customStatus)->save($this->getPropelConnection());
+
+        try {
+            $this->checker->assertOrderReturnable($order, $customer);
+            self::fail('An order in a status that is not a paid one was opened for a return.');
+        } catch (ReturnNotAllowedException $exception) {
+            self::assertNotSame('This order has not been paid yet and cannot be returned.', $exception->getMessage());
+        }
     }
 
     public function testARefusedReturnFreesItsQuantity(): void

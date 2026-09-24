@@ -23,6 +23,7 @@ use Thelia\Core\Event\TheliaEvents;
 use Thelia\Domain\OrderReturn\Exception\ReturnNotAllowedException;
 use Thelia\Domain\OrderReturn\OrderReturnStateMachine;
 use Thelia\Domain\OrderReturn\Service\OrderReturnComposer;
+use Thelia\Domain\OrderReturn\Service\OrderReturnWriteTransaction;
 use Thelia\Domain\OrderReturn\Service\RefundAmountCalculator;
 use Thelia\Domain\OrderReturn\Service\ReturnEligibilityChecker;
 use Thelia\Domain\OrderReturn\Service\StockIncrementer;
@@ -33,6 +34,7 @@ use Thelia\Model\Map\OrderReturnTableMap;
 use Thelia\Model\MessageQuery;
 use Thelia\Model\Order;
 use Thelia\Model\OrderProduct;
+use Thelia\Model\OrderQuery;
 use Thelia\Model\OrderReturn as OrderReturnModel;
 use Thelia\Model\OrderReturnReason;
 use Thelia\Model\OrderReturnStatus;
@@ -67,6 +69,7 @@ class OrderReturn extends BaseAction implements EventSubscriberInterface
         protected RefundAmountCalculator $refundCalculator,
         protected ReturnEligibilityChecker $eligibility,
         protected OrderReturnComposer $composer,
+        protected OrderReturnWriteTransaction $transaction = new OrderReturnWriteTransaction(),
     ) {
     }
 
@@ -98,13 +101,20 @@ class OrderReturn extends BaseAction implements EventSubscriberInterface
             throw new ReturnNotAllowedException('The opening return status does not exist.');
         }
 
+        $orderProductIds = [];
+        foreach ($return->getOrderReturnLines() as $line) {
+            $orderProductIds[] = (int) $line->getOrderProductId();
+        }
+
         // Checking how much of a line is still returnable and writing the return
         // that consumes it belong to the same transaction, or two callers
         // arriving together are both allowed the same last unit.
-        $connection = Propel::getConnection(OrderReturnTableMap::DATABASE_NAME);
-        $connection->beginTransaction();
+        $this->transaction->run((int) $order->getId(), $orderProductIds, function (ConnectionInterface $connection) use ($return, $order, $customer, $initialStatusId): void {
+            // Read again once locked: the order the caller handed over may have
+            // been loaded before another request cancelled or refunded it.
+            $order = OrderQuery::create()->findPk($order->getId(), $connection)
+                ?? throw new ReturnNotAllowedException('The order does not exist.');
 
-        try {
             // A customer-opened return goes through the full opening gate
             // (feature on, ownership, paid, window); the merchant-initiated
             // path does not.
@@ -153,12 +163,7 @@ class OrderReturn extends BaseAction implements EventSubscriberInterface
                 ->setStatusId($initialStatusId)
                 ->setRefundAmount(number_format(round($total, 2), 2, '.', ''))
                 ->save($connection);
-
-            $connection->commit();
-        } catch (\Throwable $exception) {
-            $connection->rollBack();
-            throw $exception;
-        }
+        });
 
         $event->setOrderReturn($return);
 
