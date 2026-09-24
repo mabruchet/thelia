@@ -12,6 +12,18 @@ The version number follows the update script this release ships, `setup/update/s
 - A new payment attempt reuses the unpaid order of the cart instead of placing another one. `Thelia\Domain\Checkout\Service\CheckoutPaymentService` compares a fingerprint of the cart lines, both addresses, the delivery module and its postage, the payment module, the currency and the discounts: unchanged, and with a payment module that declares it supports retries, the same order is presented to the module again, with the same reference and no second confirmation e-mail. Changed, or with a module that does not declare the capability, the previous order is cancelled through the status flow and one new order is placed. A cart never carries more than one live unpaid order.
 - `Thelia\Model\Order::setCancelled()` goes through `ORDER_UPDATE_STATUS` instead of writing the status on the row. Cancelling an order therefore gives its stock back and runs the status listeners, which it did not before, whatever raised it.
 
+## Orders
+
+- Two return requests on the same article can no longer both be granted its last unit, nor two returns on the same order both carry its postage back. The request that waited for the other one read the returns as they were before the other committed; every path that opens a return or changes a returned quantity now goes through `Thelia\Domain\OrderReturn\Service\OrderReturnWriteTransaction`, which locks the order, then its lines by increasing id, before anything is read. The cancelled, refunded and unpaid checks read the order once it is locked.
+- A request that loses a lock conflict with another one on the same order is refused with `Thelia\Domain\OrderReturn\Exception\ReturnRequestConflictException`, a `ReturnNotAllowedException`, instead of failing: the front and admin return operations of the API answer 409 and nothing is written, so the same request can be sent again.
+- A return on an order that is not paid yet is refused as such, instead of being told its return window has closed.
+- Raising the quantity of a return line from the admin API is checked against the other lines of the same return on the same article, which the check used to leave out.
+- The quantity already returned on a line is read from the database, not from a line loaded earlier in the same process.
+
+## API
+
+- The return collections read the orders of the page in one statement instead of one per return.
+
 ## Breaking changes
 
 - `Thelia\Module\PaymentModuleInterface` declares `supportsPaymentRetry(): bool`. `AbstractPaymentModule` answers false, so a module extending it has nothing to do; a module implementing the interface directly has to declare the method. Say true only when the provider reference varies at each attempt and the notification finds the order back by the order's own reference.
