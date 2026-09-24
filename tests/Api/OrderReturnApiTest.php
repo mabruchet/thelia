@@ -633,6 +633,49 @@ final class OrderReturnApiTest extends ApiTestCase
         }
     }
 
+    /**
+     * A body naming an order id that does not exist at all never reaches this
+     * feature's own code: API Platform resolves the `order` IRI while it
+     * denormalizes the body, before the processor runs, and refuses a
+     * reference to nothing with its own ItemNotFoundException. That exception
+     * is a Serializer ExceptionInterface, mapped to 400 by
+     * api_platform.exception_to_status - a mapping this project's own
+     * OrderReturn entry used to silently discard (see the core api_platform
+     * package configuration), turning this case into an uncaught 500 instead.
+     *
+     * This does not by itself give a foreign order and a missing order the
+     * same answer - 400 here, 422 for a foreign order, see
+     * testACustomerCannotOpenAReturnOnSomebodyElsesOrder() - which stays a
+     * known, unresolved gap: closing it would mean overriding how API
+     * Platform resolves every embedded relation in every resource, not a
+     * change scoped to returns.
+     */
+    public function testACustomerNamingAnOrderThatDoesNotExistIsRefusedWithoutA500(): void
+    {
+        $customer = $this->customer();
+        $order = $this->factory->order($customer, ['statusCode' => OrderStatus::CODE_PAID]);
+        $orderProduct = $this->orderProductFor($order);
+        $missingOrderId = (int) $order->getId() + 1_000_000;
+
+        $response = $this->jsonRequest(
+            'POST',
+            '/api/front/account/order_returns',
+            [
+                'order' => '/api/front/account/orders/'.$missingOrderId,
+                'orderReturnLines' => [
+                    ['orderProduct' => '/api/front/account/order_products/'.$orderProduct->getId(), 'quantity' => 1.0],
+                ],
+            ],
+            token: $this->authenticateAsCustomer($customer),
+        );
+
+        self::assertSame(
+            400,
+            $response->getStatusCode(),
+            'A return request naming an order that does not exist must never answer a 500: '.(string) $response->getContent(),
+        );
+    }
+
     public function testACustomerCannotReturnMoreThanTheOrderedQuantity(): void
     {
         ConfigQuery::write(ReturnEligibilityChecker::ENABLED_CONFIG_KEY, '1');

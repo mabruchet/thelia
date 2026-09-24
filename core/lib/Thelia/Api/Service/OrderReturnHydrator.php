@@ -81,7 +81,12 @@ final readonly class OrderReturnHydrator
         $order = OrderQuery::create()->findPk($data->getOrder()->getId());
 
         if (null === $order) {
-            throw new ReturnNotAllowedException('The order does not exist.');
+            // The front never says whether an order exists: telling "does not
+            // exist" apart from "exists but is not yours" would let a caller
+            // enumerate order ids by reading which refusal comes back. The
+            // admin path names a real order, so a missing one stays a precise
+            // data error.
+            throw new ReturnNotAllowedException($byAdmin ? 'The order does not exist.' : ReturnEligibilityChecker::ORDER_NOT_USABLE_MESSAGE);
         }
 
         // A customer-opened return goes through the full opening gate (feature
