@@ -52,9 +52,24 @@ final readonly class OrderReturnHydrator
      */
     public static function rowsToLock(OrderReturnResource $data): array
     {
+        // A defensive check, not the gate: the NotBlank constraints of
+        // GROUP_FRONT_WRITE and GROUP_ADMIN_WRITE already refuse a body
+        // missing either field, through the validationContext each Post
+        // operation declares. Both typed properties are uninitialized rather
+        // than null when the body omits them, and reading either one - even
+        // through isset() failing - would otherwise surface as an
+        // uncaught Error, a 500, instead of this 422.
+        if (!isset($data->order)) {
+            throw new ReturnNotAllowedException('A return must name the order it is about.');
+        }
+
         $orderProductIds = [];
 
         foreach ($data->getOrderReturnLines() as $line) {
+            if (!isset($line->orderProduct)) {
+                throw new ReturnNotAllowedException('A return line must name the order product it is about.');
+            }
+
             $orderProductIds[] = (int) $line->getOrderProduct()->getId();
         }
 

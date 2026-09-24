@@ -47,6 +47,7 @@ use Thelia\Model\OrderReturn as OrderReturnModel;
         ),
         new Post(
             uriTemplate: '/admin/order_returns',
+            validationContext: ['groups' => [self::GROUP_ADMIN_WRITE]],
             processor: OrderReturnAdminCreateProcessor::class,
         ),
         new Patch(
@@ -82,6 +83,7 @@ use Thelia\Model\OrderReturn as OrderReturnModel;
         new Post(
             uriTemplate: '/front/account/order_returns',
             denormalizationContext: ['groups' => [self::GROUP_FRONT_WRITE]],
+            validationContext: ['groups' => [self::GROUP_FRONT_WRITE]],
             processor: OrderReturnFrontCreateProcessor::class,
         ),
     ],

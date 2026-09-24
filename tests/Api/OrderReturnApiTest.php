@@ -676,6 +676,64 @@ final class OrderReturnApiTest extends ApiTestCase
         );
     }
 
+    /**
+     * A body with no `order` at all leaves the resource's typed property
+     * uninitialized rather than null: reading it without a guard raises an
+     * Error, not a catchable business refusal. The NotBlank constraint on
+     * GROUP_FRONT_WRITE is the gate meant to catch this, through the
+     * validationContext the front Post operation declares - never a 500.
+     */
+    public function testACustomerRequestWithNoOrderAtAllIsRefusedWithA422(): void
+    {
+        $customer = $this->customer();
+        $order = $this->factory->order($customer, ['statusCode' => OrderStatus::CODE_PAID]);
+        $orderProduct = $this->orderProductFor($order);
+
+        $response = $this->jsonRequest(
+            'POST',
+            '/api/front/account/order_returns',
+            [
+                'orderReturnLines' => [
+                    ['orderProduct' => '/api/front/account/order_products/'.$orderProduct->getId(), 'quantity' => 1.0],
+                ],
+            ],
+            token: $this->authenticateAsCustomer($customer),
+        );
+
+        self::assertSame(
+            422,
+            $response->getStatusCode(),
+            'A return request naming no order at all must never answer a 500: '.(string) $response->getContent(),
+        );
+    }
+
+    /**
+     * Same concern, one level down: a line naming no `orderProduct` at all.
+     */
+    public function testACustomerRequestWithALineNamingNoOrderProductIsRefusedWithA422(): void
+    {
+        $customer = $this->customer();
+        $order = $this->factory->order($customer, ['statusCode' => OrderStatus::CODE_PAID]);
+
+        $response = $this->jsonRequest(
+            'POST',
+            '/api/front/account/order_returns',
+            [
+                'order' => '/api/front/account/orders/'.$order->getId(),
+                'orderReturnLines' => [
+                    ['quantity' => 1.0],
+                ],
+            ],
+            token: $this->authenticateAsCustomer($customer),
+        );
+
+        self::assertSame(
+            422,
+            $response->getStatusCode(),
+            'A return line naming no order product at all must never answer a 500: '.(string) $response->getContent(),
+        );
+    }
+
     public function testACustomerCannotReturnMoreThanTheOrderedQuantity(): void
     {
         ConfigQuery::write(ReturnEligibilityChecker::ENABLED_CONFIG_KEY, '1');
