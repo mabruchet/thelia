@@ -639,16 +639,14 @@ final class OrderReturnApiTest extends ApiTestCase
      * denormalizes the body, before the processor runs, and refuses a
      * reference to nothing with its own ItemNotFoundException. That exception
      * is a Serializer ExceptionInterface, mapped to 400 by
-     * api_platform.exception_to_status - a mapping this project's own
-     * OrderReturn entry used to silently discard (see the core api_platform
-     * package configuration), turning this case into an uncaught 500 instead.
+     * api_platform.exception_to_status (see the core api_platform package
+     * configuration).
      *
-     * This does not by itself give a foreign order and a missing order the
-     * same answer - 400 here, 422 for a foreign order, see
-     * testACustomerCannotOpenAReturnOnSomebodyElsesOrder() - which stays a
-     * known, unresolved gap: closing it would mean overriding how API
-     * Platform resolves every embedded relation in every resource, not a
-     * change scoped to returns.
+     * This answers differently from a foreign order - 400 here, 422 there,
+     * see testACustomerCannotOpenAReturnOnSomebodyElsesOrder() - a caller can
+     * still tell the two apart, a known, unresolved gap: closing it would
+     * mean overriding how API Platform resolves every embedded relation in
+     * every resource, not a change scoped to returns.
      */
     public function testACustomerNamingAnOrderThatDoesNotExistIsRefusedWithoutA500(): void
     {
