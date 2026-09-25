@@ -34,14 +34,25 @@ final readonly class OrderReturnStatusEmailDispatcher
     ) {
     }
 
+    /**
+     * A thin pass-through for the API bridge, which only ever hands over a
+     * resource: {@see dispatchFor()} is what a caller already holding the
+     * Propel model - the ORDER_RETURN_CREATE listener, a theme reacting to
+     * its own event - should call instead of wrapping it in a resource first.
+     */
     public function dispatch(mixed $result): mixed
     {
         $model = $result instanceof OrderReturnResource ? $result->getPropelModel() : null;
 
         if ($model instanceof OrderReturnModel) {
-            $this->eventDispatcher->dispatch(new OrderReturnEvent($model), TheliaEvents::ORDER_RETURN_SEND_STATUS_EMAIL);
+            $this->dispatchFor($model);
         }
 
         return $result;
+    }
+
+    public function dispatchFor(OrderReturnModel $orderReturn): void
+    {
+        $this->eventDispatcher->dispatch(new OrderReturnEvent($orderReturn), TheliaEvents::ORDER_RETURN_SEND_STATUS_EMAIL);
     }
 }

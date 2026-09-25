@@ -27,6 +27,7 @@ The version number follows the update script this release ships, `setup/update/s
 
 - The return collections read the orders of the page in one statement instead of one per return. The status and the reason of every return on the page, and their translated labels, follow the same rule: one statement each for the whole page instead of one per return.
 - Opening a return, or raising a returned quantity, locks the order and its lines exactly once per request. `OrderReturnWriteTransaction::lock()` used to repeat a lock the transaction's own `run()` had already taken, once for the eligibility check and once more for the postage check: it is now a no-op once those rows are already held, and still locks for real when called from a transaction a caller opened itself.
+- `Thelia\Api\Service\OrderReturnStatusEmailDispatcher` gains `dispatchFor(Thelia\Model\OrderReturn $orderReturn): void`, announcing a return from the Propel model directly. A caller already holding the model no longer has to wrap it in an `Thelia\Api\Resource\OrderReturn` just to call `dispatch()`, which is now a thin pass-through onto it.
 
 ## Breaking changes
 
