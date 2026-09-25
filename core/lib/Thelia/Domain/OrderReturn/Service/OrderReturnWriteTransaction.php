@@ -137,10 +137,21 @@ final class OrderReturnWriteTransaction implements OrderReturnWriteTransactionIn
      * that has not read yet goes through run(), which makes it before the
      * transaction opens.
      *
+     * A no-op while readsSeeCommits() is true: that is only ever the case
+     * inside the $work of the outermost run() for this same order, which has
+     * already taken every lock this method would take again - a second round
+     * trip to hold what is already held. Nested in a transaction a caller
+     * opened, readsSeeCommits() is false and the lock is taken for real: it is
+     * the only way those rows get locked at all.
+     *
      * @param list<int> $orderProductIds
      */
     public function lock(int $orderId, array $orderProductIds): void
     {
+        if ($this->readsSeeCommits) {
+            return;
+        }
+
         $this->lockRows($orderId, $this->linesOfOrder($orderId, $orderProductIds));
     }
 

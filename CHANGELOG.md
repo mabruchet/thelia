@@ -26,6 +26,7 @@ The version number follows the update script this release ships, `setup/update/s
 ## API
 
 - The return collections read the orders of the page in one statement instead of one per return.
+- Opening a return, or raising a returned quantity, locks the order and its lines exactly once per request. `OrderReturnWriteTransaction::lock()` used to repeat a lock the transaction's own `run()` had already taken, once for the eligibility check and once more for the postage check: it is now a no-op once those rows are already held, and still locks for real when called from a transaction a caller opened itself.
 
 ## Breaking changes
 
