@@ -14,7 +14,6 @@ declare(strict_types=1);
 
 namespace Thelia\Tests\Api;
 
-use Propel\Runtime\Connection\PdoConnection;
 use Propel\Runtime\Propel;
 use Symfony\Component\HttpFoundation\Response;
 use Thelia\Config\DatabaseConfiguration;
@@ -34,6 +33,7 @@ use Thelia\Model\OrderReturnStatusQuery;
 use Thelia\Model\OrderStatus;
 use Thelia\Test\ApiTestCase;
 use Thelia\Test\FixtureFactory;
+use Thelia\Tests\Support\Trait\SharesSecondDatabaseSession;
 
 /**
  * The return API keeps every customer to their own returns, refuses a customer
@@ -42,6 +42,8 @@ use Thelia\Test\FixtureFactory;
  */
 final class OrderReturnApiTest extends ApiTestCase
 {
+    use SharesSecondDatabaseSession;
+
     private FixtureFactory $factory;
 
     protected function setUp(): void
@@ -582,7 +584,7 @@ final class OrderReturnApiTest extends ApiTestCase
             $previousLockWaitTimeout = (string) $requestConnection->query('SELECT @@SESSION.innodb_lock_wait_timeout')->fetchColumn();
             $requestConnection->exec('SET SESSION innodb_lock_wait_timeout = 1');
 
-            $otherSession = new PdoConnection($this->dsn(), $_SERVER['DATABASE_USER'], $_SERVER['DATABASE_PASSWORD']);
+            $otherSession = $this->openSecondSession();
             $otherSession->beginTransaction();
             $lock = $otherSession->prepare('SELECT `id` FROM `order` WHERE `id` = :id FOR UPDATE');
             $lock->execute([':id' => $orderId]);
@@ -617,19 +619,9 @@ final class OrderReturnApiTest extends ApiTestCase
                 'A return was written on somebody else\'s order.',
             );
         } finally {
-            // Manual cleanup, in FK order: nothing here rolls back on its own
-            // since the fixtures were committed for real above.
-            $connection->exec('DELETE FROM `order_return_line` WHERE `order_product_id` = '.$orderProductId);
-            $connection->exec('DELETE FROM `order_return` WHERE `order_id` = '.$orderId);
-            $connection->exec('DELETE FROM `order_product` WHERE `id` = '.$orderProductId);
-            $connection->exec('DELETE FROM `order` WHERE `id` = '.$orderId);
-            $connection->exec('DELETE FROM `cart` WHERE `id` = '.$cartId);
-            foreach ($orderAddressIds as $addressId) {
-                $connection->exec('DELETE FROM `order_address` WHERE `id` = '.$addressId);
-            }
-            foreach ($customerIds as $customerId) {
-                $connection->exec('DELETE FROM `customer` WHERE `id` = '.$customerId);
-            }
+            // Nothing here rolls back on its own since the fixtures were
+            // committed for real above.
+            $this->deleteReturnFixtures($connection, [$orderProductId], [$orderId], [$cartId], $orderAddressIds, $customerIds);
         }
     }
 
@@ -1217,21 +1209,5 @@ final class OrderReturnApiTest extends ApiTestCase
         $orderProduct->save($this->getPropelConnection());
 
         return $orderProduct;
-    }
-
-    /**
-     * The DSN of a second, genuinely independent database session: the one
-     * IntegrationTestCase and this test's own $this->client share is wrapped
-     * in the transaction the test rolls back, so proving anything about a row
-     * lock across two sessions needs a connection of its own.
-     */
-    private function dsn(): string
-    {
-        return \sprintf(
-            'mysql:host=%s;port=%s;dbname=%s',
-            $_SERVER['DATABASE_HOST'],
-            $_SERVER['DATABASE_PORT'] ?? '3306',
-            $_SERVER['DATABASE_NAME'],
-        );
     }
 }

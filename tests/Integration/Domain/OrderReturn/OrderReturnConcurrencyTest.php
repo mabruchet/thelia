@@ -18,7 +18,6 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use Propel\Runtime\Connection\ConnectionInterface;
 use Propel\Runtime\Connection\ConnectionWrapper;
-use Propel\Runtime\Connection\PdoConnection;
 use Propel\Runtime\Exception\PropelException;
 use Propel\Runtime\Propel;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
@@ -45,6 +44,7 @@ use Thelia\Model\OrderStatus;
 use Thelia\Model\OrderStatusQuery;
 use Thelia\Test\FixtureFactory;
 use Thelia\Test\IntegrationTestCase;
+use Thelia\Tests\Support\Trait\SharesSecondDatabaseSession;
 
 /**
  * Every other test in this suite runs inside the single transaction
@@ -70,6 +70,8 @@ use Thelia\Test\IntegrationTestCase;
 #[Group('concurrency')]
 final class OrderReturnConcurrencyTest extends IntegrationTestCase
 {
+    use SharesSecondDatabaseSession;
+
     // A dedicated connection only proves anything outside the transaction
     // IntegrationTestCase would otherwise wrap around it and roll back: rows
     // this test commits for real are cleaned up by hand in tearDown().
@@ -133,11 +135,7 @@ final class OrderReturnConcurrencyTest extends IntegrationTestCase
         ConfigQuery::write(ReturnEligibilityChecker::ENABLED_CONFIG_KEY, '1');
         ConfigQuery::write(ReturnEligibilityChecker::WINDOW_CONFIG_KEY, '14');
 
-        $this->otherSessionConnection = new ConnectionWrapper(new PdoConnection(
-            $this->dsn(),
-            $_SERVER['DATABASE_USER'],
-            $_SERVER['DATABASE_PASSWORD'],
-        ));
+        $this->otherSessionConnection = $this->openSecondSessionWrapped();
         $this->otherSessionConnection->exec('SET SESSION innodb_lock_wait_timeout = 1');
 
         $this->checker = $this->getService(ReturnEligibilityChecker::class);
@@ -847,7 +845,7 @@ final class OrderReturnConcurrencyTest extends IntegrationTestCase
             PHP;
 
         $configuration = json_encode([
-            'dsn' => $this->dsn(),
+            'dsn' => $this->secondSessionDsn(),
             'user' => $_SERVER['DATABASE_USER'],
             'password' => $_SERVER['DATABASE_PASSWORD'],
             'order_id' => (int) $order->getId(),
@@ -950,16 +948,6 @@ final class OrderReturnConcurrencyTest extends IntegrationTestCase
         return (int) $status->getId();
     }
 
-    private function dsn(): string
-    {
-        return \sprintf(
-            'mysql:host=%s;port=%s;dbname=%s',
-            $_SERVER['DATABASE_HOST'],
-            $_SERVER['DATABASE_PORT'] ?? '3306',
-            $_SERVER['DATABASE_NAME'],
-        );
-    }
-
     /**
      * Each fixture id is kept the moment its row exists, so a failure halfway
      * through leaves nothing committed behind.
@@ -1037,34 +1025,13 @@ final class OrderReturnConcurrencyTest extends IntegrationTestCase
      */
     private function deleteFixtures(): void
     {
-        $connection = $this->getPropelConnection();
-
-        foreach ($this->orderProductIds as $orderProductId) {
-            $connection->exec('DELETE FROM `order_return_line` WHERE `order_product_id` = '.$orderProductId);
-        }
-
-        foreach ($this->orderIds as $orderId) {
-            $connection->exec('DELETE FROM `order_return` WHERE `order_id` = '.$orderId);
-        }
-
-        foreach ($this->orderProductIds as $orderProductId) {
-            $connection->exec('DELETE FROM `order_product` WHERE `id` = '.$orderProductId);
-        }
-
-        foreach ($this->orderIds as $orderId) {
-            $connection->exec('DELETE FROM `order` WHERE `id` = '.$orderId);
-        }
-
-        foreach ($this->cartIds as $cartId) {
-            $connection->exec('DELETE FROM `cart` WHERE `id` = '.$cartId);
-        }
-
-        foreach ($this->orderAddressIds as $addressId) {
-            $connection->exec('DELETE FROM `order_address` WHERE `id` = '.$addressId);
-        }
-
-        foreach ($this->customerIds as $customerId) {
-            $connection->exec('DELETE FROM `customer` WHERE `id` = '.$customerId);
-        }
+        $this->deleteReturnFixtures(
+            $this->getPropelConnection(),
+            $this->orderProductIds,
+            $this->orderIds,
+            $this->cartIds,
+            $this->orderAddressIds,
+            $this->customerIds,
+        );
     }
 }
