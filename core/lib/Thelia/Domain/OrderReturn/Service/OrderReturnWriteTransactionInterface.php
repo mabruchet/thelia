@@ -31,8 +31,7 @@ use Thelia\Domain\OrderReturn\Exception\ReturnRequestConflictException;
 interface OrderReturnWriteTransactionInterface
 {
     /**
-     * Run $work in the transaction, the rows locked first; commit it, or roll
-     * it back and rethrow.
+     * See {@see OrderReturnWriteTransaction} for what this locks and in what order.
      *
      * @template T
      *
