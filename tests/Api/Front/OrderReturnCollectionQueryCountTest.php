@@ -18,6 +18,7 @@ use Thelia\Domain\OrderReturn\Service\ReturnEligibilityChecker;
 use Thelia\Model\ConfigQuery;
 use Thelia\Model\Customer;
 use Thelia\Model\OrderReturn;
+use Thelia\Model\OrderReturnReason;
 use Thelia\Model\OrderReturnStatus;
 use Thelia\Model\OrderReturnStatusQuery;
 use Thelia\Model\OrderStatus;
@@ -87,6 +88,83 @@ final class OrderReturnCollectionQueryCountTest extends ApiTestCase
     }
 
     /**
+     * Each member of the list also carries its status - the front card reads
+     * orderReturnStatus.code and its translated label. Three different
+     * statuses rule out the instance pool quietly hiding a query per row
+     * behind rows that all happen to point at the same one.
+     */
+    public function testTheReturnListReadsTheStatusOnceWhateverTheNumberOfReturns(): void
+    {
+        $customer = $this->factory->customer($this->factory->customerTitle());
+
+        $this->returnFor($customer, OrderReturnStatus::CODE_REQUESTED);
+        $this->returnFor($customer, OrderReturnStatus::CODE_ACCEPTED);
+        $this->returnFor($customer, OrderReturnStatus::CODE_REFUSED);
+
+        $token = $this->authenticateAsCustomer($customer);
+
+        $response = null;
+        $statements = $this->recordSqlQueriesWithoutPooledModels(function () use (&$response, $token): void {
+            $response = $this->jsonRequest('GET', '/api/front/account/order_returns', token: $token);
+        });
+
+        self::assertJsonResponseSuccessful($response);
+
+        $members = json_decode((string) $response->getContent(), true, flags: \JSON_THROW_ON_ERROR)['hydra:member'] ?? [];
+        self::assertCount(3, $members);
+
+        self::assertSame(
+            1,
+            self::countSqlQueriesSelectingFrom($statements, 'order_return_status'),
+            'The statuses of the page must be read in one statement, not one by one.',
+        );
+
+        self::assertSame(
+            1,
+            self::countSqlQueriesSelectingFrom($statements, 'order_return_status_i18n'),
+            'The status translations of the page must be read in one statement, not one by one.',
+        );
+    }
+
+    /**
+     * The reason is read the same way, per member, whenever the return names
+     * one - a distinct reason on each return rules out the instance pool
+     * hiding the same N+1 behind rows that share one target.
+     */
+    public function testTheReturnListReadsTheReasonOnceWhateverTheNumberOfReturns(): void
+    {
+        $customer = $this->factory->customer($this->factory->customerTitle());
+
+        $this->returnWithReasonFor($customer, 'A reason');
+        $this->returnWithReasonFor($customer, 'Another reason');
+        $this->returnWithReasonFor($customer, 'Yet another reason');
+
+        $token = $this->authenticateAsCustomer($customer);
+
+        $response = null;
+        $statements = $this->recordSqlQueriesWithoutPooledModels(function () use (&$response, $token): void {
+            $response = $this->jsonRequest('GET', '/api/front/account/order_returns', token: $token);
+        });
+
+        self::assertJsonResponseSuccessful($response);
+
+        $members = json_decode((string) $response->getContent(), true, flags: \JSON_THROW_ON_ERROR)['hydra:member'] ?? [];
+        self::assertCount(3, $members);
+
+        self::assertSame(
+            1,
+            self::countSqlQueriesSelectingFrom($statements, 'order_return_reason'),
+            'The reasons of the page must be read in one statement, not one by one.',
+        );
+
+        self::assertSame(
+            1,
+            self::countSqlQueriesSelectingFrom($statements, 'order_return_reason_i18n'),
+            'The reason translations of the page must be read in one statement, not one by one.',
+        );
+    }
+
+    /**
      * The order filter joins the same relation: joined twice, the list must
      * still be filtered and still carry the right order.
      */
@@ -107,14 +185,35 @@ final class OrderReturnCollectionQueryCountTest extends ApiTestCase
         self::assertSame($wantedRef, $members[0]['orderRef'] ?? null);
     }
 
-    private function returnFor(Customer $customer): OrderReturn
+    private function returnFor(Customer $customer, string $statusCode = OrderReturnStatus::CODE_REQUESTED): OrderReturn
     {
         $order = $this->factory->order($customer, ['statusCode' => OrderStatus::CODE_PAID]);
 
         $return = (new OrderReturn())
             ->setOrder($order)
             ->setCustomer($customer)
-            ->setOrderReturnStatus(OrderReturnStatusQuery::create()->findOneByCode(OrderReturnStatus::CODE_REQUESTED));
+            ->setOrderReturnStatus(OrderReturnStatusQuery::create()->findOneByCode($statusCode));
+        $return->save($this->getPropelConnection());
+
+        return $return;
+    }
+
+    private function returnWithReasonFor(Customer $customer, string $reasonTitle): OrderReturn
+    {
+        $reason = (new OrderReturnReason())
+            ->setCode('reason-'.uniqid())
+            ->setVisible(true)
+            ->setPosition(1);
+        $reason->setLocale('en_US')->setTitle($reasonTitle);
+        $reason->save($this->getPropelConnection());
+
+        $order = $this->factory->order($customer, ['statusCode' => OrderStatus::CODE_PAID]);
+
+        $return = (new OrderReturn())
+            ->setOrder($order)
+            ->setCustomer($customer)
+            ->setOrderReturnStatus(OrderReturnStatusQuery::create()->findOneByCode(OrderReturnStatus::CODE_REQUESTED))
+            ->setOrderReturnReason($reason);
         $return->save($this->getPropelConnection());
 
         return $return;
