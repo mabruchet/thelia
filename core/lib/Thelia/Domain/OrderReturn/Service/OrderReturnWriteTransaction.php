@@ -94,12 +94,18 @@ final class OrderReturnWriteTransaction implements OrderReturnWriteTransactionIn
             throw new \LogicException('The return transaction did not start: the checks would run in autocommit, where no lock holds.');
         }
 
+        $previousReadsSeeCommits = $this->readsSeeCommits;
+
         try {
             $this->lockRows($orderId, $orderProductIds);
 
-            if ($outermost) {
-                $this->readsSeeCommits = true;
-            }
+            // Outermost: the picture read from here on is taken after these
+            // locks, so a plain read may be trusted. Nested in a transaction a
+            // caller opened itself: whatever the outer run() already set, the
+            // lines just locked here are not covered by the picture the outer
+            // transaction may have already taken - only a locking read sees
+            // them, so the flag is forced down for the length of $work.
+            $this->readsSeeCommits = $outermost;
 
             $result = $work($connection);
             $connection->commit();
@@ -114,9 +120,7 @@ final class OrderReturnWriteTransaction implements OrderReturnWriteTransactionIn
 
             throw $exception;
         } finally {
-            if ($outermost) {
-                $this->readsSeeCommits = false;
-            }
+            $this->readsSeeCommits = $previousReadsSeeCommits;
         }
     }
 

@@ -342,6 +342,51 @@ final class OrderReturnConcurrencyTest extends IntegrationTestCase
     }
 
     /**
+     * A run() nested inside another run()'s work locks its own rows before
+     * reading them, but the outer run() may already have fixed the picture of
+     * the whole transaction with a plain read of its own - InnoDB's picture is
+     * transaction-wide, not per-table. readsSeeCommits() must not stay true for
+     * the inner run() just because the outer one set it for itself: the rows
+     * the inner run() just locked are not covered by that picture, and only a
+     * locking read sees what a competing return committed on them since.
+     */
+    public function testARunNestedInAnotherRunIsCheckedAgainstWhatWasCommittedAfterTheOutersFirstRead(): void
+    {
+        [$outerOrder, $outerCustomer, [$outerLine]] = $this->paidOrderWithReturnableLines(1.0);
+        [$innerOrder, $innerCustomer, [$innerLine]] = $this->paidOrderWithReturnableLines(1.0);
+
+        $this->assertRefused(
+            'The returned quantity exceeds the returnable quantity of this line.',
+            'The run() nested in another run() was granted a unit a competing return had already taken and committed after the outer run() fixed the picture of the transaction.',
+            fn () => $this->transaction->run(
+                (int) $outerOrder->getId(),
+                [(int) $outerLine->getId()],
+                function () use ($outerOrder, $outerCustomer, $outerLine, $innerOrder, $innerCustomer, $innerLine): void {
+                    // The outer run()'s first plain read: it fixes the picture
+                    // of the whole transaction from here on.
+                    $this->composer->priceRequestedLines($outerOrder, $outerCustomer, [
+                        ['order_product' => $outerLine, 'quantity' => 1.0],
+                    ]);
+
+                    // Committed only now, after that picture was already fixed.
+                    $this->openCompetingReturnOnOtherSession($innerOrder, [[$innerLine, 1.0]], includePostage: false);
+                    $this->otherSessionConnection->commit();
+
+                    $this->transaction->run(
+                        (int) $innerOrder->getId(),
+                        [(int) $innerLine->getId()],
+                        function () use ($innerOrder, $innerCustomer, $innerLine): void {
+                            $this->composer->priceRequestedLines($innerOrder, $innerCustomer, [
+                                ['order_product' => $innerLine, 'quantity' => 1.0],
+                            ]);
+                        },
+                    );
+                },
+            ),
+        );
+    }
+
+    /**
      * Two returns on two different lines of the same order share no line lock:
      * the order row is what makes the second wait for the first, rather than
      * count the postage returns without it.
