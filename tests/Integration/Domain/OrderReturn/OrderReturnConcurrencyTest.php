@@ -863,12 +863,18 @@ final class OrderReturnConcurrencyTest extends IntegrationTestCase
             ], $lines),
         ], \JSON_THROW_ON_ERROR);
 
+        // The full parent environment, not just PATH: a runner whose php.ini
+        // scan directory or file comes from PHP_INI_SCAN_DIR/PHPRC rather than
+        // the compiled-in default would otherwise hand the child a php.ini
+        // with no pdo_mysql, and the very first query of the script throws
+        // "could not find driver" instead of taking the locks it is here to
+        // hold.
         $process = proc_open(
             [\PHP_BINARY],
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
             null,
-            ['COMPETING_RETURN' => $configuration, 'PATH' => (string) getenv('PATH')],
+            [...getenv(), 'COMPETING_RETURN' => $configuration],
         );
         self::assertIsResource($process, 'The competing process could not be started.');
 
