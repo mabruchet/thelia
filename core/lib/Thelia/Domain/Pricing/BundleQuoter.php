@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Thelia\Domain\Pricing;
 
 use Thelia\Domain\Catalog\Bundle\BundleComposition;
+use Thelia\Domain\Pricing\CustomerPrice\CustomerPriceContextInterface;
 use Thelia\Domain\Taxation\TaxEngine\TaxEngine;
 use Thelia\Model\Country;
 use Thelia\Model\Currency;
@@ -25,9 +26,10 @@ use Thelia\Model\TaxRule;
 
 /**
  * The price of a composition of a bundle, for a page: the price of the line the composition
- * would make in the cart of this customer (BundleEffectivePriceSource, EffectivePrice::settle(),
- * the customer discount as the cart applies it), taxed by the tax rule of the bundle product
- * for the delivery country the visitor is shown, the way the prices of a product are.
+ * would make in the cart of this customer (BundleEffectivePriceSource, then the customer price
+ * context, which brings the discount of the group, then the one of the customer, as it does for
+ * the cart), taxed by the tax rule of the bundle product for the delivery country the visitor is
+ * shown, the way the prices of a product are.
  *
  * Nothing is computed here that the cart does not compute: a theme shows the figures, it does
  * not add, subtract or tax them.
@@ -36,6 +38,7 @@ final readonly class BundleQuoter
 {
     public function __construct(
         private BundleEffectivePriceSource $bundleEffectivePriceSource,
+        private CustomerPriceContextInterface $customerPriceContext,
         private TaxEngine $taxEngine,
     ) {
     }
@@ -59,10 +62,9 @@ final readonly class BundleQuoter
             return null;
         }
 
-        // The discount of the customer is applied to the settled prices, as the cart does it.
-        $discount = null !== $customer && $customer->getDiscount() > 0 ? (float) $customer->getDiscount() : 0.0;
-        // The price of a bundle priced by its components replaces the catalog one: nothing of the latter stands.
-        $settled = $effective->settle(0.0, $discount);
+        // The price of the line, as the cart writes it: the discount of the group, then the one of the customer.
+        $resolved = $this->customerPriceContext->resolveBundlePrices([0 => $effective], $customer)[0];
+        $settled = new SettledPrice($resolved->untaxedPrice, $resolved->untaxedPromoPrice, $resolved->isPromo, $resolved->displayInitialPrice, true);
 
         $product = ProductQuery::create()->findPk($bundleProductId);
         $country ??= $this->taxEngine->getDeliveryCountry();

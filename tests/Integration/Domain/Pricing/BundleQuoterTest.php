@@ -90,6 +90,32 @@ final class BundleQuoterTest extends IntegrationTestCase
         self::assertEqualsWithDelta(64.8, $quote->taxedSaving, 0.001);
     }
 
+    public function testTheDiscountOfTheGroupComesBeforeTheOneOfTheCustomerAsTheCartDoesIt(): void
+    {
+        $example = $this->exampleTaxedBundle();
+        $factory = $this->createFixtureFactory();
+        $group = $factory->customerGroup('pro', 20.0);
+        $customer = $factory->customer($factory->customerTitle(), ['customerGroup' => $group]);
+        $customer->setDiscount('10')->save();
+        $this->getService('services_resetter')->reset();
+
+        $quote = $this->quoter()->quote(
+            (int) $example['bundle']->getId(),
+            (int) $this->saleElementsOf($example['bundle'])->getId(),
+            $this->composition($example, 2),
+            Currency::getDefaultCurrency(),
+            $customer,
+        );
+
+        // 540 and 600, 20 % less for the group, 10 % less for the customer, then 20 % of tax.
+        self::assertNotNull($quote);
+        self::assertEqualsWithDelta(388.8, $quote->untaxedPrice, 0.001);
+        self::assertEqualsWithDelta(466.56, $quote->taxedPrice, 0.001);
+        self::assertEqualsWithDelta(432.0, $quote->untaxedFullPrice, 0.001);
+        self::assertEqualsWithDelta(518.4, $quote->taxedFullPrice, 0.001);
+        self::assertEqualsWithDelta(51.84, $quote->taxedSaving, 0.001);
+    }
+
     public function testABundleWithoutDiscountStrikesNothingThrough(): void
     {
         $example = $this->exampleTaxedBundle('0');
